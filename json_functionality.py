@@ -50,7 +50,7 @@ async def save_name_to_json(user_id, name):
         file_data['users'][user_id] = name
         print(name)
         file.seek(0)
-        json.dump(file_data, file, indent=4)
+        json.dump(file_data, file, indent=4, ensure_ascii=False)
 
 
 async def get_name_by_id(user_id):
@@ -64,7 +64,6 @@ def get_all_user_names():
         file_data = json.load(file)
         user_names = [[name] for name in file_data['users'].values()]
         return user_names
-
 
 def get_all_users():
     with open('users.json', 'r', encoding='utf-8') as file:

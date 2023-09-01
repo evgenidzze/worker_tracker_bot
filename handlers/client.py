@@ -9,7 +9,7 @@ from config import GROUP_ID
 from create_bot import bot
 from google_mao_api import get_static_map_image
 from json_functionality import user_register_status, save_name_to_json, get_name_by_id
-from keyboards.kb_client import kb_client, kb_location
+from keyboards.kb_client import kb_client, kb_location, kb_lunch
 from google_sheets_integration.main import add_user_to_table, gs
 
 
@@ -17,6 +17,7 @@ class FSMClient(StatesGroup):
     user_name = State()
     start_location = State()
     end_location = State()
+    lunch_status_dict = State()
 
 
 start_work_dict = {}
@@ -25,7 +26,8 @@ lunch_break_status = {}
 
 # /start визначає чи є доступ у юзера до бота, якщо так то записує ім'я
 async def start_command(message: Message):
-    user_status = user_register_status(str(message.from_user.id))
+    user_id = str(message.from_user.id)
+    user_status = user_register_status(user_id)
     if user_status['is_id'] and user_status['is_name']:
         await message.answer(text=f'Вітаю, {user_status["name"]}', reply_markup=kb_client)
     elif user_status['is_id'] and not user_status['is_name']:
@@ -39,6 +41,7 @@ async def start_command(message: Message):
 
 # Приймає введене ім'я та записує у json
 async def load_name(message: types.Message, state: FSMContext):
+    user_id = str(message.from_user.id)
     full_name = message.text
     if len(full_name.split()) < 2:
         await message.answer("Введіть прізвище та ім'я через пробіл")
@@ -46,19 +49,23 @@ async def load_name(message: types.Message, state: FSMContext):
         await state.finish()
 
         add_user_to_table(user_name=full_name)
-        await save_name_to_json(str(message.from_user.id), name=full_name)
-
+        await save_name_to_json(user_id, name=full_name)
         await message.answer(f"Вітаю, {full_name} можете розпочинати роботу", reply_markup=kb_client)
 
 
 # Реагує на "Почати роботу"
 async def start_work(message: types.Message):
-    # gs.create_month_table()
     user_id = str(message.from_user.id)
     if user_register_status(user_id)['is_name']:
         if user_id in start_work_dict:
             await message.answer(text='Ви вже почали робочий день.')
         else:
+            today_day = datetime.datetime.today().day
+            if user_id not in lunch_break_status:
+                lunch_break_status[user_id] = {'checked': False, 'day_check': today_day}
+            elif lunch_break_status[user_id]['day_check'] != today_day:
+                lunch_break_status[user_id]['day_check'] = today_day
+                lunch_break_status[user_id]['checked'] = False
             await FSMClient.start_location.set()
             await message.answer(text='Поділіться геолокацією, щоб почати роботу.', reply_markup=kb_location)
     else:
@@ -81,14 +88,35 @@ async def send_start_location(message: types.Message, state: FSMContext):
 
 
 # Реагує на 'Закінчити роботу', надсилає гео та має відняти поточний час від start_time та записати у sheet
-async def end_work(message: types.Message, state: FSMContext):
+async def end_work(message: types.Message):
     user_id = str(message.from_user.id)
 
     if user_id not in start_work_dict:
         await message.answer(text='Щоб закінчити роботу, спочатку її потрібно почати)')
     else:
-        await FSMClient.end_location.set()
-        await message.answer(text='Поділіться геолокацією, щоб закінчити роботу.', reply_markup=kb_location)
+        now_time = datetime.datetime.now().time()
+
+        if now_time >= datetime.time(hour=13) and not lunch_break_status[user_id]['checked']:
+            await FSMClient.lunch_status_dict.set()
+            await message.answer(text='Чи був у вас обід сьогодні?', reply_markup=kb_lunch)
+        else:
+            await FSMClient.end_location.set()
+            await message.answer(text='Поділіться геолокацією, щоб закінчити роботу.', reply_markup=kb_location)
+
+
+async def lunch_question(message: types.Message, state: FSMContext):
+    user_id = str(message.from_user.id)
+    lunch_break_status[user_id]['had_lunch'] = True if message.text == 'Так' else False
+    lunch_break_status[user_id]['checked'] = True
+    name = await get_name_by_id(user_id)
+    if lunch_break_status[user_id]['had_lunch']:
+        await bot.send_message(chat_id=GROUP_ID, text=f"{name} працює з обідом, бот відняв годину.")
+    else:
+        await bot.send_message(chat_id=GROUP_ID, text=f"{name} працює без обіду, бот не відняв годину.")
+
+    await state.finish()
+    await FSMClient.end_location.set()
+    await message.answer(text='Поділіться геолокацією, щоб закінчити роботу.', reply_markup=kb_location)
 
 
 async def send_end_location(message: types.Message, state: FSMContext):
@@ -109,15 +137,18 @@ async def send_end_location(message: types.Message, state: FSMContext):
         old_hours, old_minutes = gs.get_work_hours(user_name=name).split(':')
     except TypeError:
         old_hours, old_minutes = 0, 0
-        print('no data in cell')
 
     new_time = datetime.timedelta(hours=hours, minutes=minutes)
     old_time = datetime.timedelta(hours=int(old_hours), minutes=int(old_minutes))
     result_time = old_time + new_time
 
     result_hours = result_time.seconds // 3600
-    result_minutes = str(((result_time.seconds % 3600) // 60) + 5).zfill(
-        2)  # хвилини < 10 додаються як 1, 2 без нуля, не сумуються в таблиці, зробити 01
+    result_minutes = str((result_time.seconds % 3600) // 60).zfill(2)
+
+    if lunch_break_status[user_id]['had_lunch'] and not lunch_break_status[user_id].get(
+            'subtracted') and result_hours >= 1:
+        result_hours -= 1
+        lunch_break_status[user_id]['subtracted'] = True
 
     gs.add_work_hours(user_name=name, work_time=f"{result_hours}:{result_minutes}")
 
@@ -126,9 +157,6 @@ async def send_end_location(message: types.Message, state: FSMContext):
     await bot.send_photo(chat_id=GROUP_ID, photo=get_static_map_image(lat, long),
                          caption=f'{name} закінчив роботу.')
     del start_work_dict[user_id]
-
-    if user_id in lunch_break_status:
-        pass
 
 
 # @dp.message_handler(Text(equals='Мої години'))
@@ -151,3 +179,5 @@ def register_handlers_client(dp: Dispatcher):
     dp.register_message_handler(send_end_location, content_types=['location'], state=FSMClient.end_location)
 
     dp.register_message_handler(user_hours, Text(equals='Мої години'))
+
+    dp.register_message_handler(lunch_question, state=FSMClient.lunch_status_dict)

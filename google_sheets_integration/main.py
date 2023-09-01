@@ -127,6 +127,7 @@ class GoogleSheet:
         all_users = get_all_user_names()
         values = [['П.І.Б. / дата'] + current_month_days_list() + ['Сума'],
                   *all_users]
+
         data = [{
             'values': values,
             'range': f"{current_month_year}!1:1000"
@@ -199,7 +200,7 @@ class GoogleSheet:
                     },
                     "cell": {
                         "userEnteredValue": {
-                            "formulaValue": "=SUM(B2:AF2)"
+                            "formulaValue": f"=SUM(B2:{get_column_letter(len(values[0]) - 1)}2)"
                         }
                     },
                     "fields": "userEnteredValue"
@@ -216,13 +217,14 @@ class GoogleSheet:
         return all_sheets
 
     def user_date_coords(self, user_name: str):
-        current_date = datetime.datetime.now().strftime('%d.%m')
+        current_date = datetime.datetime.now().strftime('%d.%m').lstrip('0')
         current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
 
         try:
             sheet = self.service.spreadsheets()
             date_row_data = sheet.values().get(spreadsheetId=self.SPREADSHEET_ID,
                                                range=f'{current_month_year}!1:1').execute()
+
             date_num_coord = date_row_data['values'][0].index(current_date) + 1
             date_letter_coord = get_column_letter(col=date_num_coord)
 
@@ -285,6 +287,9 @@ gs = GoogleSheet()
 
 
 def add_user_to_table(user_name: str):
+    current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+    if current_month_year not in gs.get_sheets():
+        gs.create_month_table()
     gs.append_to_column_a(new_username=user_name)
 
 
@@ -292,5 +297,4 @@ def create_new_month_sheet():
     try:
         gs.create_month_table()
     except HttpError:
-        # print('table already exist')
         pass
