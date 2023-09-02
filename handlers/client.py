@@ -1,4 +1,6 @@
 import datetime
+
+import pytz
 from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
@@ -22,21 +24,23 @@ class FSMClient(StatesGroup):
 
 start_work_dict = {}
 lunch_break_status = {}
+now = datetime.datetime.now(pytz.timezone('Europe/Kiev'))
 
 
 # /start визначає чи є доступ у юзера до бота, якщо так то записує ім'я
 async def start_command(message: Message):
-    user_id = str(message.from_user.id)
-    user_status = user_register_status(user_id)
-    if user_status['is_id'] and user_status['is_name']:
-        await message.answer(text=f'Вітаю, {user_status["name"]}', reply_markup=kb_client)
-    elif user_status['is_id'] and not user_status['is_name']:
-        await FSMClient.user_name.set()
-        await message.answer(text="Введіть прізвище та ім'я", reply_markup=ReplyKeyboardRemove())
-    else:
-        await message.answer(
-            text='У вас немає доступу до бота. Після отримання доступу від адміністратора, натисніть на команду /start',
-            reply_markup=ReplyKeyboardRemove())
+    if message.chat.type != types.ChatType.GROUP:
+        user_id = str(message.from_user.id)
+        user_status = user_register_status(user_id)
+        if user_status['is_id'] and user_status['is_name']:
+            await message.answer(text=f'Вітаю, {user_status["name"]}', reply_markup=kb_client)
+        elif user_status['is_id'] and not user_status['is_name']:
+            await FSMClient.user_name.set()
+            await message.answer(text="Введіть прізвище та ім'я", reply_markup=ReplyKeyboardRemove())
+        else:
+            await message.answer(
+                text='У вас немає доступу до бота. Після отримання доступу від адміністратора, натисніть на команду /start',
+                reply_markup=ReplyKeyboardRemove())
 
 
 # Приймає введене ім'я та записує у json
@@ -79,8 +83,7 @@ async def send_start_location(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     name = await get_name_by_id(user_id)
 
-    start_time = datetime.datetime.now()
-    start_work_dict[user_id] = start_time
+    start_work_dict[user_id] = now
 
     await bot.send_photo(chat_id=GROUP_ID, photo=get_static_map_image(lat, long),
                          caption=f"{name} почав роботу.")
@@ -94,7 +97,7 @@ async def end_work(message: types.Message):
     if user_id not in start_work_dict:
         await message.answer(text='Щоб закінчити роботу, спочатку її потрібно почати)')
     else:
-        now_time = datetime.datetime.now().time()
+        now_time = now.time()
 
         if now_time >= datetime.time(hour=13) and not lunch_break_status[user_id]['checked']:
             await FSMClient.lunch_status_dict.set()
@@ -125,11 +128,10 @@ async def send_end_location(message: types.Message, state: FSMContext):
     lat, long = message.location['latitude'], message.location['longitude']
     name = await get_name_by_id(user_id)
 
-    end_time = datetime.datetime.now()
-    worked_time = end_time - start_work_dict[user_id]  # відпрацьований час невідформатований
+    worked_time = now - start_work_dict[user_id]  # відпрацьований час невідформатований
     hours = worked_time.seconds // 3600
     minutes = (worked_time.seconds % 3600) // 60
-    current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+    current_month_year = f"{now.strftime('%B')} {now.strftime('%Y')}"
 
     if current_month_year not in gs.get_sheets():
         gs.create_month_table()
@@ -145,7 +147,7 @@ async def send_end_location(message: types.Message, state: FSMContext):
     result_hours = result_time.seconds // 3600
     result_minutes = str((result_time.seconds % 3600) // 60).zfill(2)
 
-    if lunch_break_status[user_id]['had_lunch'] and not lunch_break_status[user_id].get(
+    if lunch_break_status[user_id].get('had_lunch') and not lunch_break_status[user_id].get(
             'subtracted') and result_hours >= 1:
         result_hours -= 1
         lunch_break_status[user_id]['subtracted'] = True
