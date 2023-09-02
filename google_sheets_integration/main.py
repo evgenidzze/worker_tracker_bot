@@ -64,7 +64,7 @@ class GoogleSheet:
             pass
 
     def append_to_column_a(self, new_username):
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
 
         range_to_update = f'{current_month_year}!A:A'
         data = {
@@ -83,7 +83,7 @@ class GoogleSheet:
         # print(f'New username appended to column A: {new_username}, index is ')
 
     def create_month_table(self):
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
         bold_format = {
             "textFormat": {
                 "bold": True
@@ -218,7 +218,7 @@ class GoogleSheet:
 
     def user_date_coords(self, user_name: str):
         current_date = datetime.datetime.now().strftime('%d.%m').lstrip('0')
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
 
         try:
             sheet = self.service.spreadsheets()
@@ -238,7 +238,7 @@ class GoogleSheet:
 
     def add_work_hours(self, user_name, work_time):
         coords = self.user_date_coords(user_name=user_name)
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
         range_to_update = f'{current_month_year}!{coords}'
         try:
             body = {
@@ -255,7 +255,7 @@ class GoogleSheet:
 
     def get_work_hours(self, user_name):
         coords = self.user_date_coords(user_name=user_name)
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
 
         range_to_get = f'{current_month_year}!{coords}'
         try:
@@ -268,7 +268,7 @@ class GoogleSheet:
             pass
 
     def get_month_hours(self, user_name):
-        current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
 
         sum_cell_index = len(current_month_days_list()) + 2
         users = self.service.spreadsheets().values().get(spreadsheetId=self.SPREADSHEET_ID,
@@ -287,7 +287,7 @@ gs = GoogleSheet()
 
 
 def add_user_to_table(user_name: str):
-    current_month_year = f"{datetime.datetime.now().strftime('%B')} {datetime.datetime.now().strftime('%Y')}"
+    current_month_year = f"{datetime.datetime.now().strftime('%B')}%20{datetime.datetime.now().strftime('%Y')}"
     if current_month_year not in gs.get_sheets():
         gs.create_month_table()
     gs.append_to_column_a(new_username=user_name)
@@ -297,4 +297,5 @@ def create_new_month_sheet():
     try:
         gs.create_month_table()
     except HttpError:
+        # print('table already exist')
         pass
