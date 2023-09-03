@@ -1,5 +1,4 @@
 import datetime
-
 import pytz
 from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
@@ -12,7 +11,7 @@ from create_bot import bot
 from google_mao_api import get_static_map_image
 from json_functionality import user_register_status, save_name_to_json, get_name_by_id
 from keyboards.kb_client import kb_client, kb_location, kb_lunch
-from google_sheets_integration.main import add_user_to_table, gs
+from google_sheets_integration.main import add_user_to_table, gs, get_current_month_name
 
 
 class FSMClient(StatesGroup):
@@ -24,7 +23,9 @@ class FSMClient(StatesGroup):
 
 start_work_dict = {}
 lunch_break_status = {}
-now = datetime.datetime.now(pytz.timezone('Europe/Kiev'))
+
+def now():
+    return datetime.datetime.now(pytz.timezone('Europe/Kiev'))
 
 
 # /start визначає чи є доступ у юзера до бота, якщо так то записує ім'я
@@ -83,7 +84,7 @@ async def send_start_location(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     name = await get_name_by_id(user_id)
 
-    start_work_dict[user_id] = now
+    start_work_dict[user_id] = now()
 
     await bot.send_photo(chat_id=GROUP_ID, photo=get_static_map_image(lat, long),
                          caption=f"{name} почав роботу.")
@@ -97,9 +98,7 @@ async def end_work(message: types.Message):
     if user_id not in start_work_dict:
         await message.answer(text='Щоб закінчити роботу, спочатку її потрібно почати)')
     else:
-        now_time = now.time()
-
-        if now_time >= datetime.time(hour=13) and not lunch_break_status[user_id]['checked']:
+        if now().time() >= datetime.time(hour=13) and not lunch_break_status[user_id]['checked']:
             await FSMClient.lunch_status_dict.set()
             await message.answer(text='Чи був у вас обід сьогодні?', reply_markup=kb_lunch)
         else:
@@ -127,11 +126,10 @@ async def send_end_location(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     lat, long = message.location['latitude'], message.location['longitude']
     name = await get_name_by_id(user_id)
-
-    worked_time = now - start_work_dict[user_id]  # відпрацьований час невідформатований
+    worked_time = now() - start_work_dict[user_id]  # відпрацьований час невідформатований
     hours = worked_time.seconds // 3600
     minutes = (worked_time.seconds % 3600) // 60
-    current_month_year = f"{now.strftime('%B')} {now.strftime('%Y')}"
+    current_month_year = f"{get_current_month_name()} {now().strftime('%Y')}"
 
     if current_month_year not in gs.get_sheets():
         gs.create_month_table()
@@ -146,7 +144,6 @@ async def send_end_location(message: types.Message, state: FSMContext):
 
     result_hours = result_time.seconds // 3600
     result_minutes = str((result_time.seconds % 3600) // 60).zfill(2)
-
     if lunch_break_status[user_id].get('had_lunch') and not lunch_break_status[user_id].get(
             'subtracted') and result_hours >= 1:
         result_hours -= 1
