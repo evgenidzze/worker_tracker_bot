@@ -47,10 +47,10 @@ async def remove_user_id_from_json(user_id, message):
 async def save_name_to_json(user_id, name):
     with open('users.json', 'r+', encoding='utf-8') as file:
         file_data = json.load(file)
-        file_data['users'][user_id] = name
-        print(name)
+        file_data['users'][str(user_id)] = name  # Переконайтесь, що user_id - рядок
         file.seek(0)
         json.dump(file_data, file, indent=4, ensure_ascii=False)
+        file.truncate()
 
 
 async def get_name_by_id(user_id):
@@ -62,7 +62,7 @@ async def get_name_by_id(user_id):
 def get_all_user_names():
     with open('users.json', 'r', encoding='utf-8') as file:
         file_data = json.load(file)
-        user_names = [[name] for name in file_data['users'].values()]
+        user_names = [[name] for name in file_data['users'].values() if name]
         return user_names
 
 def get_all_users():
