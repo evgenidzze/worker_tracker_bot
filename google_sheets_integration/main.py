@@ -13,12 +13,16 @@ from googleapiclient.errors import HttpError
 from config import SAMPLE_SPREADSHEET_ID
 from json_functionality import get_all_user_names
 
+locale.setlocale(locale.LC_ALL, 'uk_UA.utf8')
+
 custom_month_names = ['', 'січень', 'лютий', 'березень', 'квітень', 'травень', 'червень', 'липень', 'серпень',
                       'вересень', 'жовтень', 'листопад', 'грудень']
 
-def get_month_name():
+
+def get_current_month_name():
     month_number = int(datetime.datetime.now().month)
     return custom_month_names[month_number]
+
 
 def get_column_letter(col):
     """
@@ -32,7 +36,7 @@ def get_column_letter(col):
     return ''.join(reversed(letters))
 
 
-def current_month_days_list():
+def current_month_days_numbers():
     now = datetime.datetime.now()
     days_in_month = calendar.monthrange(now.year, now.month)[1]
     days_month_list = [f"{str(day).zfill(2)}.{now.strftime('%m')}" for day in range(1, days_in_month + 1)]
@@ -68,7 +72,7 @@ class GoogleSheet:
             pass
 
     def append_to_column_a(self, new_username):
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
 
         range_to_update = f'{current_month_year}!A:A'
         data = {
@@ -76,18 +80,66 @@ class GoogleSheet:
             'majorDimension': 'COLUMNS',
             'values': [[new_username]],
         }
-        self.service.spreadsheets().values().append(spreadsheetId=self.SPREADSHEET_ID,
-                                                    range=range_to_update,
-                                                    valueInputOption='USER_ENTERED',
-                                                    insertDataOption='INSERT_ROWS',
-                                                    body=data).execute()
+
+        apnd = self.service.spreadsheets().values().append(spreadsheetId=self.SPREADSHEET_ID,
+                                                           range=range_to_update,
+                                                           valueInputOption='USER_ENTERED',
+                                                           insertDataOption='INSERT_ROWS',
+                                                           body=data).execute()
         result = self.service.spreadsheets().values().get(spreadsheetId=self.SPREADSHEET_ID,
                                                           range=range_to_update).execute()
+        dates_result = self.service.spreadsheets().values().get(spreadsheetId=self.SPREADSHEET_ID,
+                                                          range=f'{current_month_year}!1:1').execute()
+        last_user_id = len(result['values'])
+        last_date_id = len(dates_result['values'][0])
 
-        # print(f'New username appended to column A: {new_username}, index is ')
+        sheet = self.service.spreadsheets().get(spreadsheetId=self.SPREADSHEET_ID).execute()
+
+        self.sheet_id = sheet['sheets'][-1]['properties']['sheetId']
+        request = [
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": self.sheet_id,
+                        "startRowIndex": last_user_id - 1,  # user index in table
+                        "endRowIndex": last_user_id,  # user index + 1
+                        "startColumnIndex": 1,
+                        "endColumnIndex": 150,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": "DATE_TIME",
+                                "pattern": "[h]:mm"
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.numberFormat"
+                }
+            },
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": self.sheet_id,
+                        "startRowIndex": last_user_id - 1,  # user index in table
+                        "endRowIndex": last_user_id,  # user index in table
+                        "startColumnIndex": last_date_id - 1,
+                        "endColumnIndex": last_date_id
+                    },
+                    "cell": {
+                        "userEnteredValue": {
+                            "formulaValue": f"=SUM(B{last_user_id}:{get_column_letter(last_date_id-1)}{last_user_id})"
+                        }
+                    },
+                    "fields": "userEnteredValue"
+                }
+            }
+        ]
+        self.service.spreadsheets().batchUpdate(
+            spreadsheetId=self.SPREADSHEET_ID, body={'requests': request}).execute()
 
     def create_month_table(self):
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
         bold_format = {
             "textFormat": {
                 "bold": True
@@ -117,7 +169,7 @@ class GoogleSheet:
                         "startRowIndex": 0,
                         "endRowIndex": 1,
                         "startColumnIndex": 0,
-                        "endColumnIndex": len(current_month_days_list()) + 1
+                        "endColumnIndex": len(current_month_days_numbers()) + 1
                     },
                     "cell": {
                         "userEnteredFormat": bold_format
@@ -129,7 +181,7 @@ class GoogleSheet:
         format_response = self.service.spreadsheets().batchUpdate(
             spreadsheetId=self.SPREADSHEET_ID, body={'requests': format_request}).execute()
         all_users = get_all_user_names()
-        values = [['П.І.Б. / дата'] + current_month_days_list() + ['Сума'],
+        values = [['П.І.Б. / дата'] + current_month_days_numbers() + ['Сума'],
                   *all_users]
 
         data = [{
@@ -222,7 +274,7 @@ class GoogleSheet:
 
     def user_date_coords(self, user_name: str):
         current_date = datetime.datetime.now().strftime('%d.%m').lstrip('0')
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
 
         try:
             sheet = self.service.spreadsheets()
@@ -242,7 +294,7 @@ class GoogleSheet:
 
     def add_work_hours(self, user_name, work_time):
         coords = self.user_date_coords(user_name=user_name)
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
         range_to_update = f'{current_month_year}!{coords}'
         try:
             body = {
@@ -259,7 +311,7 @@ class GoogleSheet:
 
     def get_work_hours(self, user_name):
         coords = self.user_date_coords(user_name=user_name)
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
         range_to_get = f'{current_month_year}!{coords}'
         try:
             result = self.service.spreadsheets().values().get(spreadsheetId=self.SPREADSHEET_ID,
@@ -271,8 +323,8 @@ class GoogleSheet:
             pass
 
     def get_month_hours(self, user_name):
-        current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
-        sum_cell_index = len(current_month_days_list()) + 2
+        current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
+        sum_cell_index = len(current_month_days_numbers()) + 2
         users = self.service.spreadsheets().values().get(spreadsheetId=self.SPREADSHEET_ID,
                                                          range=f'{current_month_year}!A:A').execute()
         row_index = users['values'].index([user_name]) + 1
@@ -289,7 +341,7 @@ gs = GoogleSheet()
 
 
 def add_user_to_table(user_name: str):
-    current_month_year = f"{get_month_name()} {datetime.datetime.now().strftime('%Y')}"
+    current_month_year = f"{get_current_month_name()} {datetime.datetime.now().strftime('%Y')}"
     if current_month_year not in gs.get_sheets():
         gs.create_month_table()
     gs.append_to_column_a(new_username=user_name)
